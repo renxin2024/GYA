@@ -1,4 +1,4 @@
-# look-my-agents
+# GYA
 
 《我了解的大模型和 Agent》系列文章的配套代码仓库。
 
