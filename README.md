@@ -1,12 +1,14 @@
-# GYA
+# GYA — Get Your Agent
 
-《我了解的大模型和 Agent》系列文章的配套代码仓库。
+**GYA（Get Your Agent）** 系列文章的配套代码仓库。
 
 ## 这个仓库是什么
 
-本仓库是博客系列 **《我了解的大模型和 Agent》** 的可运行代码集合。系列从「模型只会说话」讲起，一步步拆解 Agent 能力的每次跃迁——Function Calling、Agent 循环、MCP 协议、Skill 系统、多 Agent 协作——每篇文章都配一个能直接跑起来的最小演示。
+博客系列 **GYA（Get Your Agent）** 以「拥有自己的 Agent」为最终承诺：读完这个系列，你不只懂了 Agent 技术，而是真的构建出属于自己的 Agent。
 
-> 系列文章发布在 https://www.renxinblog.cn （搜索「Agent」）
+本仓库是系列的可运行代码集合。系列从「模型只会说话」讲起，一步步拆解 Agent 能力的每次跃迁——Function Calling、Agent 循环、MCP 协议、Skill 系统、多 Agent 协作——每篇文章都配一个能直接跑起来的最小演示。
+
+> 系列文章发布在 https://www.renxinblog.cn/series/gya/
 > 文章正文在文章站点，能跑的代码在这里。
 
 ## 目录导航
