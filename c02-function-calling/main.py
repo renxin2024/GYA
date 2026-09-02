@@ -1,118 +1,112 @@
 #!/usr/bin/env python3
-"""C02 演示：Function Calling 第一性原理
+"""GYA C02：用一条正常路径跑通 Function Calling。"""
 
-模型并没有"学会"调用工具——它只是输出了一个 JSON 格式的工具调用请求，
-真正执行函数的是调用方（也就是本脚本）的代码。
-
-用法:
-    export DEEPSEEK_API_KEY=sk-xxx
-    python3 main.py
-
-依赖: Python 3.10+，仅标准库（urllib），无需安装任何包。
-"""
+from __future__ import annotations
 
 import json
 import os
-import urllib.request
+from typing import Any
 
-API_URL = os.environ.get("LLM_API_URL", "https://api.deepseek.com/chat/completions")
-API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+from openai import OpenAI
+
+
 MODEL = os.environ.get("LLM_MODEL", "deepseek-v4-flash")
 
-# ---------------------------------------------------------------
-# 1. 我们声明模型"可以用"哪些工具。（声明 ≠ 执行）
-# ---------------------------------------------------------------
-TOOLS = [
+TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
             "name": "get_weather",
-            "description": "查询指定城市的当前天气。城市例：北京、上海、深圳",
+            "description": "查询指定城市的天气演示数据",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "city": {"type": "string", "description": "城市名"}
+                    "city": {"type": "string", "description": "城市名，如北京"}
                 },
                 "required": ["city"],
+                "additionalProperties": False,
             },
         },
     }
 ]
 
-# 模拟的工具返回数据（真实系统里这里会去请求天气 API）
-FAKE_WEATHER = {
-    "北京": "多云，25℃，东北风 3 级",
-    "上海": "阵雨，28℃，东南风 2 级",
-    "深圳": "晴，31℃，南风 2 级",
-}
-
 
 def get_weather(city: str) -> str:
-    """真正执行工具的函数——它才是"会干活"的那一方。模型只是说"我想查"，
-    这个函数真的去查（这里简化成查一张本地表）。"""
-    return FAKE_WEATHER.get(city, f"暂无 {city} 的天气数据")
+    """返回确定性的演示数据；生产环境可替换成真实天气 API。"""
+    weather = {
+        "北京": "多云，25℃，东北风3级",
+        "上海": "小雨，22℃，东南风2级",
+    }
+    return weather.get(city, f"暂无{city}的天气演示数据")
 
 
-def call(messages, tools=None):
-    """向模型发一次请求。"""
-    payload = {"model": MODEL, "messages": messages, "tools": tools, "stream": False}
-    req = urllib.request.Request(
-        API_URL,
-        data=json.dumps(payload).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {API_KEY}",
-        },
+def execute_tool(name: str, arguments_json: str) -> str:
+    """校验模型请求后，再把允许的工具名映射到本地函数。"""
+    if name != "get_weather":
+        raise ValueError(f"不允许执行未知工具：{name}")
+
+    arguments = json.loads(arguments_json)
+    if not isinstance(arguments, dict) or set(arguments) != {"city"}:
+        raise ValueError("get_weather 参数必须且只能包含 city")
+
+    city = arguments["city"]
+    if not isinstance(city, str) or not city.strip():
+        raise ValueError("city 必须是非空字符串")
+
+    return get_weather(city.strip())
+
+
+def main() -> None:
+    api_key = os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise SystemExit("请先设置 LLM_API_KEY 或 DEEPSEEK_API_KEY")
+
+    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    messages: list[Any] = [
+        {"role": "user", "content": "请查询北京现在的天气。"}
+    ]
+
+    # 第一次请求：模型只生成结构化工具请求，不执行 Python 函数。
+    assistant_message = client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        tools=TOOLS,
+        tool_choice="required",
+        extra_body={"thinking": {"type": "disabled"}},
+    ).choices[0].message
+
+    if not assistant_message.tool_calls:
+        raise RuntimeError("模型没有返回 tool_calls")
+    if len(assistant_message.tool_calls) != 1:
+        raise RuntimeError("本示例只处理一个 tool_call")
+
+    tool_call = assistant_message.tool_calls[0]
+    print(f"模型请求：{tool_call.function.name}({tool_call.function.arguments})")
+
+    # 真正执行发生在这里：Python 程序调用本地函数。
+    result = execute_tool(tool_call.function.name, tool_call.function.arguments)
+    print(f"程序执行：{result}")
+
+    # 把模型的调用请求和对应结果一起放回消息历史。
+    messages.append(assistant_message)
+    messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": tool_call.id,
+            "content": result,
+        }
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.loads(resp.read())
 
-
-def run_tool(name: str, args_str: str):
-    """调用方根据模型返回的工具名，分发给对应的真实函数并执行。"""
-    args = json.loads(args_str)
-    if name == "get_weather":
-        return get_weather(args["city"])
-    raise ValueError(f"未知工具: {name}")
-
-
-def main() -> int:
-    if not API_KEY:
-        print("请先设置 DEEPSEEK_API_KEY 环境变量（https://platform.deepseek.com 获取）")
-        return 1
-
-    question = "北京现在天气怎么样？"
-    print(f"模型: {MODEL}\n问题: {question}\n" + "-" * 46)
-
-    # 第一轮：把问题 + 工具声明一起发给模型
-    messages = [{"role": "user", "content": question}]
-    r = call(messages, tools=TOOLS)
-    msg = r["choices"][0]["message"]
-
-    if msg.get("tool_calls"):
-        # 模型说："我想调用 get_weather(北京)" —— 注意它只说了，没做
-        for tc in msg["tool_calls"]:
-            fn = tc["function"]
-            print(f"[模型说] 我要调用工具: {fn['name']}({fn['arguments']})")
-            # 现在调用方（我们的代码）真正执行
-            result = run_tool(fn["name"], fn["arguments"])
-            print(f"[调用方] 我已执行工具，结果是: {result}")
-            # 把工具结果作为一条 role=tool 的消息回喂给模型
-            messages.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": msg["tool_calls"],
-            })
-            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
-
-        # 第二轮：模型拿到工具结果，生成最终回答
-        r2 = call(messages)
-        print(f"[模型最后说] {r2['choices'][0]['message']['content']}")
-    else:
-        print(f"[模型直接回答] {msg['content']}")
-
-    return 0
+    # 第二次请求：让模型基于工具结果组织面向用户的回答。
+    final_message = client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        tools=TOOLS,
+        tool_choice="none",
+        extra_body={"thinking": {"type": "disabled"}},
+    ).choices[0].message
+    print(f"模型回答：{final_message.content}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

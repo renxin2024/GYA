@@ -1,126 +1,146 @@
 #!/usr/bin/env python3
-"""C01 演示：一次最小调用，看清模型、API、Runtime 的职责边界。
-
-这个 demo 只做一件事：把「一次调用里谁发了什么、谁收到了什么」变成可观察的 Trace。
-它不会自动查天气、也不会调用工具——这正是 C01 要让你看清的边界。
-
-用法:
-    # 不联网，只打印 Runtime 会组装出什么样的请求
-    python3 main.py --dry-run "上海今天天气怎么样？"
-
-    # 可选注入一条 system 级运行时提示
-    RUNTIME_CONTEXT="只回答可以从请求证明的事实" python3 main.py --dry-run "上海今天天气怎么样？"
-
-    # 真实调用 DeepSeek
-    export DEEPSEEK_API_KEY=sk-xxx
-    python3 main.py "上海今天天气怎么样？"
-
-依赖: Python 3.9+，仅标准库。
-"""
+"""GYA C01：比较普通聊天与提示词驱动的动作请求。"""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
-import re
-import sys
-import urllib.error
-import urllib.request
+from dataclasses import dataclass
 from typing import Any
 
-REDACTED_RESPONSE_KEYS = {"id", "request_id", "system_fingerprint"}
+from openai import OpenAI
 
 
-def emit(event: str, owner: str, **fields: Any) -> None:
-    print(json.dumps({"event": event, "owner": owner, **fields}, ensure_ascii=False, separators=(",", ":")))
+MODEL = os.environ.get("LLM_MODEL", "deepseek-v4-flash")
+QUESTION = "请查询北京现在的天气。如果没有外部数据，请不要猜测。"
+
+ACTION_PROMPT = """
+你是动作请求生成器，不要直接回答用户问题。
+
+可用动作：
+- get_weather(city: string)：查询指定城市的天气。
+
+当用户的问题需要查询天气时，只输出一行 JSON，不要输出 Markdown、解释或代码围栏：
+{"name":"get_weather","arguments":{"city":"城市名"}}
+
+不得使用未列出的动作，不得添加未声明的参数。
+""".strip()
 
 
-def redact_response(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {k: "<redacted>" if k in REDACTED_RESPONSE_KEYS else redact_response(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [redact_response(item) for item in value]
+@dataclass(frozen=True)
+class ActionRequest:
+    name: str
+    city: str
+
+
+def api_base_url() -> str:
+    """兼容填写 API 根地址或完整 chat/completions 地址的环境变量。"""
+    value = os.environ.get("LLM_API_URL", "https://api.deepseek.com").rstrip("/")
+    suffix = "/chat/completions"
+    if value.endswith(suffix):
+        value = value[: -len(suffix)]
     return value
 
 
-def sanitized_response_text(raw: str) -> str:
+def get_weather(city: str) -> str:
+    """返回确定性的演示数据；生产环境可替换成真实天气 API。"""
+    weather = {
+        "北京": "多云，25℃，东北风3级",
+        "上海": "小雨，22℃，东南风2级",
+    }
+    return weather.get(city, f"暂无{city}的天气演示数据")
+
+
+def parse_action(text: str) -> ActionRequest:
+    """把模型的普通文本输出当作约定 JSON 解析，并执行最小校验。"""
     try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        return raw
-    return json.dumps(redact_response(parsed), ensure_ascii=False, separators=(",", ":"))
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("模型没有返回合法的纯 JSON") from exc
+
+    if not isinstance(data, dict) or set(data) != {"name", "arguments"}:
+        raise ValueError("动作请求必须且只能包含 name 和 arguments")
+    if data["name"] != "get_weather":
+        raise ValueError(f"不允许执行未知动作：{data['name']}")
+
+    arguments = data["arguments"]
+    if not isinstance(arguments, dict) or set(arguments) != {"city"}:
+        raise ValueError("get_weather 参数必须且只能包含 city")
+    city = arguments["city"]
+    if not isinstance(city, str) or not city.strip():
+        raise ValueError("city 必须是非空字符串")
+    return ActionRequest(name="get_weather", city=city.strip())
 
 
-def build_payload(model: str, prompt: str, runtime_context: str = "") -> dict[str, Any]:
-    messages: list[dict[str, str]] = []
-    if runtime_context:
-        messages.append({"role": "system", "content": runtime_context})
-    messages.append({"role": "user", "content": prompt})
-    return {"model": model, "messages": messages, "stream": False}
+def execute_action(action: ActionRequest) -> str:
+    """真正的动作发生在 Python 分支，而不是模型响应内部。"""
+    if action.name != "get_weather":
+        raise ValueError(f"不允许执行未知动作：{action.name}")
+    return get_weather(action.city)
 
 
-def redact_sensitive_fields(text: str) -> str:
-    text = re.sub(r"(?<!\d)1[3-9]\d{9}(?!\d)", "<redacted>", text)
-    text = re.sub(r"(?<!\d)\d{17}[\dXx](?!\d)", "<redacted>", text)
-    return text
+def request_text(client: OpenAI, messages: list[dict[str, str]]) -> str:
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        temperature=0,
+        extra_body={"thinking": {"type": "disabled"}},
+    )
+    content = response.choices[0].message.content
+    if not content:
+        raise RuntimeError("模型没有返回文本内容")
+    return content.strip()
 
 
-def trace_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    traced = json.loads(json.dumps(payload, ensure_ascii=False))
-    for message in traced["messages"]:
-        if message["role"] == "system":
-            message["content"] = "<redacted>"
-        elif message["role"] == "user":
-            message["content"] = redact_sensitive_fields(message["content"])
-    return traced
+def run_chat(client: OpenAI) -> None:
+    """普通聊天：响应只被打印，不会进入任何工具执行分支。"""
+    answer = request_text(client, [{"role": "user", "content": QUESTION}])
+    print(f"普通聊天输出：{answer}")
+    print("Python 执行动作：否")
 
 
-def main() -> int:
+def run_prompt_tool(client: OpenAI) -> None:
+    """提示词协议：把模型文本解释为动作请求，再由 Python 执行。"""
+    action_text = request_text(
+        client,
+        [
+            {"role": "system", "content": ACTION_PROMPT},
+            {"role": "user", "content": QUESTION},
+        ],
+    )
+    print(f"模型输出动作文本：{action_text}")
+    action = parse_action(action_text)
+    result = execute_action(action)
+    print(f"Python 执行动作：{action.name}({json.dumps({'city': action.city}, ensure_ascii=False)})")
+    print(f"工具返回：{result}")
+
+
+def build_client() -> OpenAI:
+    api_key = os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise SystemExit("请先设置 LLM_API_KEY 或 DEEPSEEK_API_KEY")
+    return OpenAI(api_key=api_key, base_url=api_base_url())
+
+
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("prompt", nargs="?", default="上海今天的天气和气温是多少？")
-    parser.add_argument("--dry-run", action="store_true", help="不联网，只打印请求 Trace")
+    parser.add_argument(
+        "--mode",
+        choices=("chat", "prompt-tool", "all"),
+        default="all",
+        help="运行普通聊天、提示词动作协议，或依次运行两者",
+    )
     args = parser.parse_args()
+    client = build_client()
 
-    api_url = os.environ.get("LLM_API_URL", "https://api.deepseek.com/chat/completions")
-    model = os.environ.get("LLM_MODEL", "deepseek-v4-flash")
-    api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("LLM_API_KEY", "")
-    if not args.dry_run and not api_key:
-        print("请先设置 DEEPSEEK_API_KEY 或 LLM_API_KEY。", file=sys.stderr)
-        return 2
-
-    runtime_context = os.environ.get("RUNTIME_CONTEXT", "").strip()
-    if runtime_context:
-        context_bytes = runtime_context.encode("utf-8")
-        emit("context.prepared", "client_runtime", source="env:RUNTIME_CONTEXT", role="system",
-             content_bytes=len(context_bytes), sha256=hashlib.sha256(context_bytes).hexdigest(),
-             content_redacted=True)
-    else:
-        emit("context.skipped", "client_runtime", source="env:RUNTIME_CONTEXT", reason="empty_optional_context")
-
-    payload = build_payload(model, args.prompt, runtime_context)
-    emit("request.prepared", "client_runtime", method="POST", url=api_url,
-         headers={"Content-Type": "application/json", "Authorization": "Bearer <redacted>"},
-         body=trace_payload(payload))
-    if args.dry_run:
-        emit("run.finished", "client_runtime", outcome="dry_run_no_network")
-        return 0
-
-    request = urllib.request.Request(api_url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + api_key},
-                                     method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            status = response.status
-            raw = response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        status = exc.code
-        raw = exc.read().decode("utf-8", errors="replace")
-    emit("response.received", "model_api", status=status, body_raw=sanitized_response_text(raw))
-    emit("run.finished", "client_runtime", outcome="success" if 200 <= status < 300 else "http_error")
-    return 0 if 200 <= status < 300 else 1
+    if args.mode in ("chat", "all"):
+        run_chat(client)
+    if args.mode == "all":
+        print("\n--- 加入动作格式提示词后 ---")
+    if args.mode in ("prompt-tool", "all"):
+        run_prompt_tool(client)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
