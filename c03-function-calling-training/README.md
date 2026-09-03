@@ -1,4 +1,22 @@
-# C03 演示：模型"会调用工具"的能力是从哪来的？
+# C03：模型为什么能生成工具调用请求？
+
+本章不执行订单操作。它用“已支付退款 / 未支付取消 / 信息不足 / 无意图”四类虚构订单场景，比较 Prompt-only 与 Native tools 两种接口路径。
+
+模型只生成候选调用；Runtime 提供已验证状态，并负责后续的业务校验、授权、确认和执行。本 demo 没有退款、取消或查询订单的实现。
+
+## 运行
+
+```bash
+python3 -m unittest -v test_main.py
+python3 main.py --dry-run
+
+export LLM_API_KEY='你的 Key'
+python3 main.py --mode all --case all
+```
+
+通过标准：已支付退款应输出 `refund_order(O-100)`；未支付取消应输出 `cancel_order(O-200)`；信息不足和无意图时没有工具调用。`--description-profile swapped` 只对调 description，是故障注入，不能用于生产。
+
+旧版 `train_compare.py` 的多城市天气实验不再代表本章结论，已由上述单轮订单 fixture 实验替代。
 
 一个演示「工具调用格式能力来自**后训练 + API 层**，而不是你在 prompt 里写几句『请输出 JSON』」的最小程序。
 
