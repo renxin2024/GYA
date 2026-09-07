@@ -7,8 +7,6 @@ import json
 import os
 from typing import Any
 
-from openai import OpenAI
-
 
 MODEL = os.environ.get("LLM_MODEL", "deepseek-v4-flash")
 
@@ -57,6 +55,8 @@ def execute_tool(name: str, arguments_json: str) -> str:
 
 
 def main() -> None:
+    from openai import OpenAI  # 延迟导入：只有真正调用模型时才需要 openai
+
     api_key = os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
         raise SystemExit("请先设置 LLM_API_KEY 或 DEEPSEEK_API_KEY")

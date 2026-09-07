@@ -7,9 +7,10 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from openai import OpenAI
+if TYPE_CHECKING:
+    from openai import OpenAI
 
 
 MODEL = os.environ.get("LLM_MODEL", "deepseek-v4-flash")
@@ -93,14 +94,14 @@ def request_text(client: OpenAI, messages: list[dict[str, str]]) -> str:
     return content.strip()
 
 
-def run_chat(client: OpenAI) -> None:
+def run_chat(client: "OpenAI") -> None:
     """普通聊天：响应只被打印，不会进入任何工具执行分支。"""
     answer = request_text(client, [{"role": "user", "content": QUESTION}])
     print(f"普通聊天输出：{answer}")
     print("Python 执行动作：否")
 
 
-def run_prompt_tool(client: OpenAI) -> None:
+def run_prompt_tool(client: "OpenAI") -> None:
     """提示词协议：把模型文本解释为动作请求，再由 Python 执行。"""
     action_text = request_text(
         client,
