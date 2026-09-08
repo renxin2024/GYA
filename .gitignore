@@ -1,0 +1,11 @@
+# --- 运行时产物（SQLite 记忆库等）---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# --- IDE ---
+.idea/
+*.iml
+.DS_Store
+__pycache__/
