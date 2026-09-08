@@ -2,7 +2,8 @@
 """C07 演示：四层记忆——工作、情节、语义、程序。
 
 跑一遍你能看到：
-  1. 情节记忆：预设写入"我叫张三/我爱喝茶"→ 落 SQLite → 重启读回
+  1. 情节记忆：预设写入"我叫张三/我在戒咖啡"→ 落 SQLite → 重启读回，
+     并按 subject / session / 关键词 SQL 精确召回
   2. 语义记忆：bge-m3 向量化 → Qdrant 检索，跨会话召回偏好；
      同义改写（"爱喝"与"喜欢喝"）也能命中
   3. 完整闭环：保存记忆 → 新会话提问 → 检索候选 → 组装上下文 → 模型回答。
@@ -75,6 +76,20 @@ def demo_episodic() -> None:
     print("重启后读回的事实：")
     for f in mem2.all():
         print(f"  - {f['subject']}: {f['fact']}  (session={f['session_id']})")
+
+    print("\n（情节记忆怎么召回：SQL 精确查询，不靠全量读回）")
+    by_subject = mem2.by_subject("偏好")
+    print(f"  按 subject 精确查「偏好」→ 命中 {len(by_subject)} 条：")
+    for f in by_subject:
+        print(f"    - {f['fact']}")
+    by_session = mem2.by_session("session-A")
+    print(f"  按 session 查「session-A」→ 命中 {len(by_session)} 条（这场对话发生过的所有事）：")
+    for f in by_session:
+        print(f"    - {f['subject']}: {f['fact']}")
+    search = mem2.search("咖啡")
+    print(f"  按关键词模糊查「咖啡」→ 命中 {len(search)} 条：")
+    for f in search:
+        print(f"    - {f['subject']}: {f['fact']}")
     mem2.close()
 
 

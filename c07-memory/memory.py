@@ -98,6 +98,29 @@ class EpisodicMemory:
             for r in cur.fetchall()
         ]
 
+    def _query(self, where: str, params: tuple) -> list[dict]:
+        """三条召回方法共用的查询：取字段、拼 dict。"""
+        cur = self.conn.execute(
+            f"SELECT subject, fact, session_id, created_at FROM facts {where} ORDER BY id",
+            params,
+        )
+        return [
+            {"subject": r[0], "fact": r[1], "session_id": r[2], "created_at": r[3]}
+            for r in cur.fetchall()
+        ]
+
+    def by_subject(self, subject: str) -> list[dict]:
+        """按事实主体精确召回，例如 by_subject('偏好') 取回所有偏好条目。"""
+        return self._query("WHERE subject = ?", (subject,))
+
+    def by_session(self, session_id: str) -> list[dict]:
+        """按会话召回，取回「某一场对话里都发生了什么」。"""
+        return self._query("WHERE session_id = ?", (session_id,))
+
+    def search(self, keyword: str) -> list[dict]:
+        """按关键词模糊召回（LIKE），命中事实内容里包含该词的条目。"""
+        return self._query("WHERE fact LIKE ?", (f"%{keyword}%",))
+
     def summary(self) -> str:
         return "\n".join(f"- {f['subject']}: {f['fact']}" for f in self.all())
 

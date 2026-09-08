@@ -61,6 +61,36 @@ class TestEpisodicMemory(unittest.TestCase):
             self.assertEqual(facts[0]["fact"], "张三")
             mem2.close()
 
+    def test_recall_by_subject(self):
+        with tempfile.TemporaryDirectory() as d:
+            mem = EpisodicMemory(os.path.join(d, "test.db"))
+            mem.add("偏好", "最近在戒咖啡", session_id="s1")
+            mem.add("职业", "Java 后端工程师", session_id="s1")
+            hits = mem.by_subject("偏好")
+            self.assertEqual(len(hits), 1, "按 subject 精确查应只命中偏好")
+            self.assertEqual(hits[0]["fact"], "最近在戒咖啡")
+            mem.close()
+
+    def test_recall_by_session(self):
+        with tempfile.TemporaryDirectory() as d:
+            mem = EpisodicMemory(os.path.join(d, "test.db"))
+            mem.add("偏好", "最近在戒咖啡", session_id="s1")
+            mem.add("职业", "Java 后端工程师", session_id="s2")
+            hits = mem.by_session("s1")
+            self.assertEqual(len(hits), 1, "按 session 查应只命中 s1 那场对话")
+            self.assertEqual(hits[0]["fact"], "最近在戒咖啡")
+            mem.close()
+
+    def test_search_by_keyword(self):
+        with tempfile.TemporaryDirectory() as d:
+            mem = EpisodicMemory(os.path.join(d, "test.db"))
+            mem.add("偏好", "最近在戒咖啡", session_id="s1")
+            mem.add("职业", "Java 后端工程师", session_id="s1")
+            hits = mem.search("咖啡")
+            self.assertEqual(len(hits), 1, "关键词「咖啡」应命中偏好那条")
+            self.assertEqual(hits[0]["subject"], "偏好")
+            mem.close()
+
 
 class TestOfflineSemanticMemory(unittest.TestCase):
     def test_retrieve_hits_correct_doc(self):
