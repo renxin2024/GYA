@@ -17,6 +17,7 @@ import unittest
 
 from memory import EpisodicMemory, OfflineSemanticMemory, WorkingMemory
 from embedding import tfidf_matrix, cosine
+from memory_demo import build_messages
 
 
 class TestWorkingMemory(unittest.TestCase):
@@ -26,6 +27,22 @@ class TestWorkingMemory(unittest.TestCase):
         snap = wm.snapshot()
         snap.append({"role": "user", "content": "污染"})
         self.assertEqual(len(wm), 1, "snapshot 应该是拷贝，不应影响内部状态")
+
+
+class TestBuildMessages(unittest.TestCase):
+    """闭环组装逻辑：检索命中 → system 消息；无命中 → 只发用户问题。"""
+
+    def test_hits_go_into_system_message(self):
+        hits = [(0.753, "用户最近在戒咖啡，想少喝一点")]
+        msgs = build_messages("我最近在戒咖啡，聚餐该注意什么？", hits)
+        self.assertEqual(msgs[0]["role"], "system", "命中条目应放进 system 消息")
+        self.assertIn("戒咖啡", msgs[0]["content"], "system 消息应包含命中记忆内容")
+        self.assertEqual(msgs[-1]["role"], "user", "最后一条应是用户问题")
+
+    def test_no_hits_means_no_fabrication(self):
+        msgs = build_messages("我上个月去了哪？", None)
+        self.assertEqual(len(msgs), 1, "无命中时只发用户问题，不塞编造内容")
+        self.assertEqual(msgs[0]["role"], "user")
 
 
 class TestEpisodicMemory(unittest.TestCase):
@@ -49,7 +66,7 @@ class TestOfflineSemanticMemory(unittest.TestCase):
     def test_retrieve_hits_correct_doc(self):
         sem = OfflineSemanticMemory()
         docs = [
-            "用户喜欢喝茶，尤其是龙井",
+            "用户最近在戒咖啡，想少喝一点",
             "用户职业是 Java 后端工程师",
             "用户的博客主题是 AI Agent 开发",
         ]
