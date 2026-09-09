@@ -1,14 +1,19 @@
 # C09 Skill 系统最小演示
 
-这个 demo 用纯 Python 标准库模拟一个极小的 Skill Host：
+这个 demo 用纯 Python 标准库模拟一个极小的 Skill Host。关键点在于：**Host 自己不知道什么叫「Markdown 质量」**，它只做四件通用的事——发现 Skill、按 `description` 匹配、加载 Skill 声明的资源、执行 Skill 声明的命令。真正的「检查什么、怎么检查」全部写在 Skill 自己的文件里。
 
-1. 扫描 Skill 的 `SKILL.md` frontmatter；
-2. 根据 `description` 判断请求是否匹配；
-3. 匹配后加载 Skill 正文；
-4. 按指令调用 `scripts/validate.py`；
-5. 输出结构化检查结果。
+## 职责拆在哪
 
-它不是完整的 LLM Agent，也不模拟模型推理。目的只是把 Skill 的文件结构、发现、按需加载和确定性校验拆开，让读者先看到协议边界。
+| 谁 | 知道什么 | 不知道什么 |
+|---|---|---|
+| `main.py`（Host） | 怎么发现 SKILL.md、怎么读 frontmatter、怎么匹配、怎么按步骤执行 | 「Markdown 质量」具体指什么 |
+| `skills/markdown-quality/SKILL.md` | 这个 Skill 叫什么、解决什么问题、步骤顺序（先读 checklist 再跑 validate） | 校验规则的实现细节 |
+| `references/checklist.md` | 要检查哪些规则 | 怎么用代码去查 |
+| `scripts/validate.py` | 怎么用代码逐条校验 | 什么时候该用它、结果怎么上报 |
+
+`SKILL.md` 的 frontmatter 里有一份 `steps` 列表，每步要么是 `ref:`（加载一个资源文件），要么是 `run:`（执行一条命令，`{file}` 是目标文件的占位符）。Host 读取这份 `steps` 并逐条执行——**步骤从文件里来，不是写死在 Host 里**。
+
+它不是完整的 LLM Agent，也不模拟模型推理。目的只是把「发现—匹配—加载—执行—验收」这条边界摊开，让读者看到「方法」是怎样从 Host 拆到文件里的。
 
 ## 环境
 
@@ -27,11 +32,13 @@ python3 main.py
 ```text
 [discover] markdown-quality
 [match] markdown-quality
-[load] SKILL.md + references/checklist.md
+[load] references/checklist.md
+[run] python3 scripts/validate.py .../samples/good.md
 [validate] good.md -> PASS: frontmatter=ok h1=1 summary=ok
+[run] python3 scripts/validate.py .../samples/bad.md
 [validate] bad.md -> FAIL: frontmatter must be delimited by ---; missing closing section: ## 总结
 [validate] passed=1 failed=1 (expected)
 [result] status=PASS
 ```
 
-demo 还会检查一个故意缺少 frontmatter 的失败样例，展示 Skill 的执行结果和脚本校验结果是两层不同的事情。
+注意最后一行 `status=PASS` 的含义：它不表示两份样例都合格，而是 Host 的验收条件被满足——合格样例通过、故意损坏的样例被拦截。「验证器工作正常」和「被验证对象合格」是两回事。
