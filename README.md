@@ -20,6 +20,7 @@
 | `c03-model-training/` | 03 模型怎么被训出来的 | （规划中） | ⏳ |
 | `c04-tool-registry/` | 04 工具注册表与 ToolResponse | （规划中） | ⏳ |
 | `c05-react-agent/` | 05 手写 ReAct Agent | （规划中） | ⏳ |
+| `c11-suspend-protocol/` | 11 Agent 为什么会停下来：从模型信号到 Runtime 状态迁移 | 模型只提决定、Runtime 独占状态迁移；三种等待信号来源汇入同一入口 | ✅ 可运行 |
 | `c16-sse-agent-stream/` | 16 SSE 为什么会用在 AI Agent 开发中 | 无 API Key 的 Agent Run 事件流服务 | ✅ 可运行 |
 | ... | ... | ... | ... |
 
