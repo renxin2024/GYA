@@ -13,7 +13,7 @@ c12-durable-resume/
 ├── README.md       # 本文件
 └── python/
     ├── main.py        # Store：checkpoint + 审批绑定 + 幂等恢复 + Trace
-    └── test_main.py   # unittest 测试（9 项）
+    └── test_main.py   # unittest 测试（10 项）
 ```
 
 Python 3.11+ 只使用标准库 SQLite，无第三方依赖、无需 API Key。`start` 会确定性地构造一个固定的 `write_draft` proposal，代替上游 LLM 输出。
@@ -22,7 +22,7 @@ Python 3.11+ 只使用标准库 SQLite，无第三方依赖、无需 API Key。`
 
 ```bash
 cd python
-PYTHONPYCACHEPREFIX=/private/tmp/c12-pycache python3 -B -m unittest -v   # 9 项测试
+PYTHONPYCACHEPREFIX=/private/tmp/c12-pycache python3 -B -m unittest -v   # 10 项测试
 
 python3 main.py --db /tmp/c12.db --output /tmp/c12-draft.txt start run-1
 python3 main.py --db /tmp/c12.db --output /tmp/c12-draft.txt show-trace run-1
@@ -34,8 +34,8 @@ python3 main.py --db /tmp/c12.db --output /tmp/c12-draft.txt show-trace run-1
 
 ## 验收语义
 
-- 固定 proposal 的 hash 是 `6720618495b41f95d98585c44fc2361fecd4d5ea401e234f1ebec7a763122e35`（Python / Java 两端一致）。
-- 审批同时保存 `approval_request_id` 和 `approval_hash`；恢复时既比较当前 request ID，也重新计算 action/args hash。批准后替换 pending request 或 proposal 都会被拒绝。
+- proposal 的 hash 覆盖 `action + args + output` 三者。固定 proposal（output 取 `/tmp/c12-draft.txt`）的 hash 是 `2bba1bb36ae552812b4b9e0d730249a3447adfc3ed100e0f4d92e3a8c28e7573`（Python / Java 两端一致）。
+- 审批同时保存 `approval_request_id` 和 `approval_hash`；恢复时既比较当前 request ID，也重新计算 action/args/output 的 hash，并显式比对本次传入的 output 是否等于批准时冻结的 output。批准后替换 pending request、proposal 或 output 都会被拒绝。
 - 正常完成后重复 `resume` 返回 `already_completed`，Trace 留 `action_replayed`。
 - 测试在「文件已创建、COMPLETED 尚未写回」之间注入崩溃；重试发现相同幂等键对应的文件内容已存在时返回 `recovered`，不重写文件。
 - 同一路径已存在但内容不同，恢复返回 `output_conflict`，不覆盖原文件。

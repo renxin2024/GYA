@@ -32,12 +32,12 @@ class DurableResumeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "approval_required"): self.store.resume(self.run)
         self.assertFalse(self.out.exists())
     def test_tampered_proposal_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "proposal_hash_mismatch"): self.store.decide(self.run, "approve", proposal_hash("write_draft", {"content": "tampered"}))
+        with self.assertRaisesRegex(ValueError, "proposal_hash_mismatch"): self.store.decide(self.run, "approve", proposal_hash("write_draft", {"content": "tampered"}, str(self.out)))
         self.assertFalse(self.out.exists())
     def test_post_approval_storage_tampering_is_rejected(self):
         self.store.decide(self.run, "approve", self.digest)
         tampered_args = '{"content":"tampered after approval"}'
-        tampered_hash = proposal_hash("write_draft", {"content": "tampered after approval"})
+        tampered_hash = proposal_hash("write_draft", {"content": "tampered after approval"}, str(self.out))
         self.store.conn.execute("UPDATE runs SET args=?, proposal_hash=? WHERE run_id=?", (tampered_args, tampered_hash, self.run))
         self.store.conn.commit()
         with self.assertRaisesRegex(ValueError, "proposal_hash_mismatch"):
@@ -60,8 +60,21 @@ class DurableResumeTest(unittest.TestCase):
         self.store.decide(self.run, "reject", self.digest)
         with self.assertRaisesRegex(ValueError, "approval_not_pending"): self.store.decide(self.run, "approve", self.digest)
         with self.assertRaisesRegex(ValueError, "approval_rejected"): self.store.resume(self.run)
+    def test_post_approval_output_swap_is_rejected(self):
+        self.store.decide(self.run, "approve", self.digest)
+        # 恢复时换一个输出路径，等于篡改副作用目标
+        other_output = self.out.parent / "other.txt"
+        second_process = Store(self.store.db, other_output)
+        with self.assertRaisesRegex(ValueError, "output_mismatch"):
+            second_process.resume(self.run)
+        self.assertFalse(other_output.exists())
+        self.assertFalse(self.out.exists())
     def test_cross_language_canonical_hash_contract(self):
-        self.assertEqual("6720618495b41f95d98585c44fc2361fecd4d5ea401e234f1ebec7a763122e35", self.digest)
+        # 两端对同一个 action+args+output 组合算出相同 hash（固定 output 作契约锚点）
+        self.assertEqual(
+            "2bba1bb36ae552812b4b9e0d730249a3447adfc3ed100e0f4d92e3a8c28e7573",
+            proposal_hash("write_draft", {"content": "approved technical brief"}, "/tmp/c12-draft.txt"),
+        )
 
 
 if __name__ == "__main__": unittest.main()
