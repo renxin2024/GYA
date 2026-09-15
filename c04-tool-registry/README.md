@@ -1,4 +1,4 @@
-# C04 实验：工具注册表与 ToolResponse
+# C04 演示：工具注册表与 ToolResponse
 
 本地确定性实验，验证工具缺失、工具下线、参数错误、超时、其他执行错误、正常调用与幂等查询；另覆盖一次“候选 schema 缺少 `idempotency_key`”的更新回归。
 
@@ -6,20 +6,24 @@
 
 ## 运行
 
-环境：Python 3.10+，无第三方依赖。
+Python 3.10+，零第三方依赖：
 
 ```bash
-python3 registry_learning.py
-python3 -m unittest test_registry_learning.py
+python3 registry.py
+python3 -m unittest test_registry.py
 ```
 
-通过标准：7 项测试全部通过；示例 Trace 中包含 `REPLAY_SUCCESS`，并打印 `refund_order handler_execution_count=1`。这证明超时后查询到已成功时，Runtime 回放结果而不是再次执行退款。
+Java 21 + Gradle：
 
-Java 21 对照实现见 [GYA-Java 的 C04 目录](https://github.com/renxin2024/GYA-Java/tree/main/c04-tool-registry)。
+```bash
+gradle run
+```
+
+Java 版看到 `ALL_TESTS_PASSED` 即通过；它与 Python 版跑的是同一组断言。
 
 ## 完整输出记录
 
-文章第二节引用的主线 Trace（`python3 registry_learning.py`）：
+主线 Trace（`python3 registry.py`）——`refund_order` 已成功但响应超时，Runtime 先查幂等状态、发现 `SUCCEEDED` 后回放结果，不再二次退款：
 
 ```text
 refund_order response=EXECUTION_ERROR
@@ -30,3 +34,12 @@ refund_order handler_execution_count=1
 ```
 
 最后一行是整条链路的关键证据：Runtime 经历了「超时 → 查状态 → 回放」，真正执行退款的 handler 只跑了一次。
+
+`test_registry.py` 的 7 项测试覆盖：未知工具、工具下线、参数错误、其他执行失败、坏更新保留健康旧版、超时已成功回放、超时未执行重试一次。
+
+## 目录
+
+- `registry.py` / `test_registry.py`：配套实现（Python）
+- `legacy/`：早期版本（`registry_learning.py`），与文章不对应，仅供追溯
+
+Java 对照实现见 [GYA-Java 的 c04 目录](https://github.com/renxin2024/GYA-Java/tree/main/c04-tool-registry)。

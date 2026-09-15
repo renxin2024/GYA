@@ -1,70 +1,42 @@
-# C05 演示：手写 ReAct Agent——循环的诞生
+# C05 演示：最小 ReAct Runtime——循环的诞生
 
-一个最小但完整的四文件 ReAct Agent：模型"想"（Thought + Action），代码"做"（执行工具）+ "看"（Observation 回喂），循环直到 Final Answer。
+模型“想”（Thought + Action），代码“做”（执行工具）+ “看”（Observation 回喂），循环直到 Final Answer。
 
-## 文件结构
+任务是“公司总部今天的天气”——它天然需要两步：先把“公司总部”解析成城市，再用这个城市查天气。工具是三个本地确定性只读夹具（不依赖外部 API，避免网络和额度污染控制流证据）：
 
-```
-c05-react-agent/
-├── main.py        # CLI 入口（单问题 / -i 交互模式）
-├── react_loop.py  # ReAct 主循环（Agent 核心引擎）
-├── tools.py       # 工具系统（复用 C04 的 ToolRegistry + ToolResponse）
-└── state.py       # 状态管理（对话历史 + 步骤记录 + 终止条件）
-```
-
-## 前置环境
-
-| 项 | 要求 |
-|----|------|
-| Python | 3.10+（`python3 --version` 查看） |
-| 依赖 | 无（只用标准库，不需要 pip install） |
-| API Key | DeepSeek 官方 Key（与 C01-C04 相同） |
+| 工具 | 作用 | 行为 |
+| --- | --- | --- |
+| `resolve_company_address` | 解析总部地址 | 上海总部→上海，北京总部→北京，其余→待澄清 |
+| `get_weather` | 查城市天气 | 上海→小雨 22℃，北京→晴 18℃ |
+| `request_clarification` | 信息不足时请求补充 | 无副作用 |
 
 ## 运行
 
+### Python（3.10+）
+
 ```bash
-export DEEPSEEK_API_KEY=sk-你的key
-python3 main.py                              # 默认演示任务
-python3 main.py "北京天气怎么样？顺便算一下 123*456"   # 自定义任务
-python3 main.py -i                           # 交互模式
+# 离线回归（3 项，不需要 Key）
+python3 -m unittest test_react_agent.py
+
+# 真实模型路径，Key 只从环境变量读
+export LLM_API_URL='https://your-openai-compatible-endpoint/v1/chat/completions'
+export LLM_API_KEY='your-key'
+export LLM_MODEL='your-model'
+python3 react_agent.py
 ```
 
-## 预期输出（关键部分）
+### Java（21 + Gradle）
 
-```
-=== Step 1 ===
-[Thought] The user wants three things: check weather, calculate, summarize...
-[Action] 调用 get_weather({"city": "北京"})
-[Observation] 北京: 多云，25℃，东北风 3 级
-[Action] 调用 calculator({"expression": "123*456"})
-[Observation] 56088
-
-=== Step 2 ===
-[Thought] I have both results. Now I'll summarize them into one sentence.
-[Final Answer] 北京今天多云，气温25℃；123 × 456 = 56088。
+```bash
+gradle run --args="--offline"   # 离线验收，看到 ALL_OFFLINE_CHECKS_PASSED 即通过
+gradle run                      # 真实模型路径，环境变量同上
 ```
 
-（模型名、措辞可能略有不同，但循环形状一致：工具调用 → 观察 → 再决策 → 最终回答。）
-
-## 它证明的事
-
-1. **所有 Agent 框架的本质 = while 循环**：LLM(问题+历史) → Action → Observation → 再问 LLM，直到模型说"不需要工具了"
-2. **模型负责"想"，代码负责"做"**：`reasoning_content` 是 Thought（思考），`tool_calls` 是 Action（行动），注册表执行是 Observation（观察）
-3. **"自主决策"来自循环，不是模型意志**：模型只是每次根据"问题 + 已有结果"预测下一步；循环让多步决策成为可能
-4. **终止条件很重要**：`max_steps` 上限 + "无 tool_calls 即完成"——防止死循环
-
-## 常见坑
-
-1. **Q: HTTP 400 `reasoning_content` 错误？**
-   A: DeepSeek thinking 模式下，回喂 assistant 消息必须**原样**包含 `reasoning_content`。代码里 `state.add_message(msg)` 直接回传完整消息。
-2. **Q: 模型一直调用同一个工具停不下来？**
-   A: 这是循环没有终止条件的典型症状。`max_steps` 上限 + 每次把 Observation 回喂，模型看到"已查过"通常就会收敛。生产里还会加"重复调用检测"。
-3. **Q: 模型直接回答而不调工具？**
-   A: 如果任务其实不需要工具（如"写首诗"），这是正确行为——"不需要时不用工具"正是 C03 讲的指令遵循。如果任务需要工具但它不调，检查 schema 描述是否足够清晰。
+离线回归的 3 项里，包含“参数错误成为 `ERROR` Observation 后，模型修正并完成”和“重复决策到达 `MAX_STEPS`”。
 
 ## 完整输出记录
 
-文章第四节引用的对照 Trace，由真实模型跑出（`python3 main.py`）：
+文章第四节引用的对照 Trace，由真实模型跑出：
 
 ```text
 上海：resolve_company_address({"company_name": "上海总部"})
@@ -77,3 +49,10 @@ python3 main.py -i                           # 交互模式
 ```
 
 两步之间参数随 Observation 改变，这正是 ReAct 与「固定脚本多跑几遍」的分水岭。
+
+## 目录
+
+- `react_agent.py` / `test_react_agent.py`：配套实现（Python）
+- `legacy/`：早期四文件版本（`main.py` / `react_loop.py` / `state.py` / `tools.py`），与文章不对应，仅供追溯
+
+Java 对照实现见 [GYA-Java 的 c05 目录](https://github.com/renxin2024/GYA-Java/tree/main/c05-react-agent)。
