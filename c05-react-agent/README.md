@@ -61,3 +61,19 @@ python3 main.py -i                           # 交互模式
    A: 这是循环没有终止条件的典型症状。`max_steps` 上限 + 每次把 Observation 回喂，模型看到"已查过"通常就会收敛。生产里还会加"重复调用检测"。
 3. **Q: 模型直接回答而不调工具？**
    A: 如果任务其实不需要工具（如"写首诗"），这是正确行为——"不需要时不用工具"正是 C03 讲的指令遵循。如果任务需要工具但它不调，检查 schema 描述是否足够清晰。
+
+## 完整输出记录
+
+文章第四节引用的对照 Trace，由真实模型跑出（`python3 main.py`）：
+
+```text
+上海：resolve_company_address({"company_name": "上海总部"})
+  → 看到 RESOLVED(city="上海")
+  → get_weather({"city": "上海"})
+
+北京：resolve_company_address({"company_name": "北京总部"})
+  → 看到 RESOLVED(city="北京")
+  → get_weather({"city": "北京"})
+```
+
+两步之间参数随 Observation 改变，这正是 ReAct 与「固定脚本多跑几遍」的分水岭。

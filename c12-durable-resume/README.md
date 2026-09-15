@@ -43,3 +43,15 @@ python3 main.py --db /tmp/c12.db --output /tmp/c12-draft.txt show-trace run-1
 ## 已知边界
 
 本 demo 只证明这个固定本地文件动作的幂等策略。SQLite 事务不能覆盖数据库之外的文件、邮件或支付；生产系统仍需业务幂等键、outbox/inbox 或目标系统提供的去重能力（这些属设计候选，本文未验证）。
+
+## 挂起时返回的形态
+
+Runtime 挂起当前 Run 时，`handle()` 返回的对象长这样（文章第一节引用的就是这三个字段）：
+
+```text
+brief_id="brief-1"
+status="WAITING_FOR_USER"
+waiting_reason="unsafe_action:write_brief"
+```
+
+单进程内 `brief_id` 还在内存里，接着调 `handle("confirm", "brief-1")` 就能继续；但进程一退出，这三个字段全没了——可恢复的前提是它们已经落盘。
